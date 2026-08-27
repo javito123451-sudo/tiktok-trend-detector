@@ -62,12 +62,24 @@ const GENERIC_RADAR_SEEDS: string[] = [
 ];
 const GENERIC_RADAR_LABEL = "🌍 GENÉRICO";
 
+// Creator Search Insights: creadores emergentes en tu nicho (no hashtags,
+// perfiles). Usa /search-user/ para encontrar cuentas activas en estos
+// temas y vigila su crecimiento de seguidores entre ejecuciones.
+const CREATOR_SEARCH_SEEDS: string[] = [
+  "comedia absurda pov",
+  "appshumanizadas",
+  "ia comedia",
+  "aura farming",
+];
+const CREATOR_LABEL = "👤 CREATORS";
+
 // ── Tipos ────────────────────────────────────────────────────────────────────
 interface Snapshot {
   timestamp: number;
   view_count?: number;
   user_count?: number;
   video_count?: number;
+  follower_count?: number;
 }
 type State = Record<string, Snapshot>;
 
@@ -105,11 +117,15 @@ async function getDbClient(): Promise<Client> {
       video_count BIGINT
     )
   `);
+  // ALTER en vez de recrear: preserva el histórico ya guardado de hashtags/sonidos.
+  await client.query(`ALTER TABLE trend_snapshots ADD COLUMN IF NOT EXISTS follower_count BIGINT`);
   return client;
 }
 
 async function loadState(client: Client): Promise<State> {
-  const { rows } = await client.query(`SELECT key, ts, view_count, user_count, video_count FROM trend_snapshots`);
+  const { rows } = await client.query(
+    `SELECT key, ts, view_count, user_count, video_count, follower_count FROM trend_snapshots`
+  );
   const state: State = {};
   for (const row of rows) {
     state[row.key] = {
@@ -117,6 +133,7 @@ async function loadState(client: Client): Promise<State> {
       view_count: row.view_count != null ? Number(row.view_count) : undefined,
       user_count: row.user_count != null ? Number(row.user_count) : undefined,
       video_count: row.video_count != null ? Number(row.video_count) : undefined,
+      follower_count: row.follower_count != null ? Number(row.follower_count) : undefined,
     };
   }
   return state;
@@ -124,10 +141,17 @@ async function loadState(client: Client): Promise<State> {
 
 async function upsertSnapshot(client: Client, key: string, snap: Snapshot) {
   await client.query(
-    `INSERT INTO trend_snapshots (key, ts, view_count, user_count, video_count)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (key) DO UPDATE SET ts = $2, view_count = $3, user_count = $4, video_count = $5`,
-    [key, snap.timestamp, snap.view_count ?? null, snap.user_count ?? null, snap.video_count ?? null]
+    `INSERT INTO trend_snapshots (key, ts, view_count, user_count, video_count, follower_count)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (key) DO UPDATE SET ts = $2, view_count = $3, user_count = $4, video_count = $5, follower_count = $6`,
+    [
+      key,
+      snap.timestamp,
+      snap.view_count ?? null,
+      snap.user_count ?? null,
+      snap.video_count ?? null,
+      snap.follower_count ?? null,
+    ]
   );
 }
 
@@ -138,6 +162,49 @@ function computeGrowth(prev: Snapshot | undefined, current: Snapshot, metric: ke
   const delta = (current[metric] as number) - (prev[metric] as number);
   const pct = (delta / Math.max(prev[metric] as number, 1)) * 100;
   return pct / hours;
+}
+
+// ── Descubrimiento de creadores (Creator Search Insights) ───────────────────
+async function discoverCreators(
+  keyword: string,
+  state: State,
+  results: TrendResult[],
+  client: Client
+) {
+  try {
+    const data = await tikliveGet<{
+      user_list: {
+        user_info: {
+          uniqueId: string;
+          nickname: string;
+          secUid: string;
+          followerCount: number;
+          heartCount: number;
+          videoCount: number;
+        };
+      }[];
+    }>("/search-user/", { keyword, count: "10" });
+
+    for (const item of data.user_list ?? []) {
+      const u = item.user_info;
+      if (!u) continue;
+      const key = `creator:${u.uniqueId}`;
+      const current: Snapshot = { timestamp: Date.now(), follower_count: u.followerCount };
+      const growth = computeGrowth(state[key], current, "follower_count");
+      results.push({
+        key,
+        label: `@${u.uniqueId} (${u.nickname})`,
+        series: CREATOR_LABEL,
+        metric: u.followerCount,
+        metricName: "seguidores",
+        growthPctPerHour: growth,
+        breakout: growth != null && growth > BREAKOUT_THRESHOLD_PCT_PER_HOUR,
+      });
+      await upsertSnapshot(client, key, current);
+    }
+  } catch (err) {
+    console.error(`⚠️  Error buscando creadores "${keyword}":`, (err as Error).message);
+  }
 }
 
 // ── Descubrimiento de hashtags ───────────────────────────────────────────────
@@ -203,8 +270,9 @@ async function sendTelegramDigest(results: TrendResult[]) {
     return;
   }
 
-  const ownResults = results.filter((r) => r.series !== GENERIC_RADAR_LABEL);
+  const ownResults = results.filter((r) => r.series !== GENERIC_RADAR_LABEL && r.series !== CREATOR_LABEL);
   const genericResults = results.filter((r) => r.series === GENERIC_RADAR_LABEL);
+  const creatorResults = results.filter((r) => r.series === CREATOR_LABEL);
 
   const formatSection = (title: string, list: TrendResult[]) => {
     const breakouts = list.filter((r) => r.breakout).slice(0, 8);
@@ -212,7 +280,7 @@ async function sendTelegramDigest(results: TrendResult[]) {
     const lines = top.map((r) => {
       const growth = r.growthPctPerHour != null ? `${r.growthPctPerHour.toFixed(2)}%/h` : "sin histórico";
       const flag = r.breakout ? "🔥 " : "• ";
-      return `${flag}${r.label} — ${r.metric.toLocaleString("es-ES")} ${r.metricName} (${growth})${r.series && r.series !== GENERIC_RADAR_LABEL ? ` [${r.series}]` : ""}`;
+      return `${flag}${r.label} — ${r.metric.toLocaleString("es-ES")} ${r.metricName} (${growth})${r.series && r.series !== GENERIC_RADAR_LABEL && r.series !== CREATOR_LABEL ? ` [${r.series}]` : ""}`;
     });
     if (lines.length === 0) return "";
     return `${title}\n\n${lines.join("\n")}\n\n`;
@@ -220,7 +288,8 @@ async function sendTelegramDigest(results: TrendResult[]) {
 
   const text =
     formatSection("📌 *Tu watchlist*", ownResults) +
-    formatSection("🌍 *Radar genérico (lo que pega en general)*", genericResults);
+    formatSection("🌍 *Radar genérico (lo que pega en general)*", genericResults) +
+    formatSection("👤 *Creators emergentes*", creatorResults);
 
   const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -248,6 +317,9 @@ async function main() {
     }
     for (const seed of GENERIC_RADAR_SEEDS) {
       await discoverHashtags(seed, GENERIC_RADAR_LABEL, state, results, client);
+    }
+    for (const seed of CREATOR_SEARCH_SEEDS) {
+      await discoverCreators(seed, state, results, client);
     }
     for (const m of MUSIC_WATCHLIST) {
       await trackMusic(m.id, m.label, state, results, client);
