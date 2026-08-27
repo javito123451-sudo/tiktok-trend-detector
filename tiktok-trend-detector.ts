@@ -43,7 +43,7 @@ const HASHTAG_WATCHLIST: Record<string, string[]> = {
   "Repartidor": ["delivery guy", "superhuman feats", "pov reparto"],
   "Animales IA": ["mascota reacciona", "pet reaction prank", "ai pet surprise"],
   "Aura Farming": ["aura farming", "farmeando aura", "aura points"],
-  "Oficina IA": ["oficina ia", "ai replacing job", "trabajo automatizado"],
+  "Apps Humanizadas": ["app humanizada", "anthropomorphic app", "humanized whatsapp"],
   "Intruso en casa": ["intruso casa", "monster prank home", "scare prank family"],
 };
 
