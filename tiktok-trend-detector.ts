@@ -51,6 +51,17 @@ const MUSIC_WATCHLIST: { id: string; label: string }[] = [
   // { id: "6747377620087819014", label: "ejemplo" },
 ];
 
+// Radar genérico: términos neutros, no ligados a ninguna serie propia,
+// para detectar qué está pegando en TikTok en general ahora mismo.
+const GENERIC_RADAR_SEEDS: string[] = [
+  "viral hoy",
+  "fyp",
+  "reto viral",
+  "tendencia tiktok",
+  "pov viral",
+];
+const GENERIC_RADAR_LABEL = "🌍 GENÉRICO";
+
 // ── Tipos ────────────────────────────────────────────────────────────────────
 interface Snapshot {
   timestamp: number;
@@ -191,20 +202,25 @@ async function sendTelegramDigest(results: TrendResult[]) {
     console.log("ℹ️  TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID no configurados — se omite el envío.");
     return;
   }
-  const breakouts = results.filter((r) => r.breakout).slice(0, 10);
-  const top = (breakouts.length > 0 ? breakouts : results.slice(0, 10));
 
-  const lines = top.map((r) => {
-    const growth = r.growthPctPerHour != null ? `${r.growthPctPerHour.toFixed(2)}%/h` : "sin histórico";
-    const flag = r.breakout ? "🔥 " : "• ";
-    return `${flag}${r.label} — ${r.metric.toLocaleString("es-ES")} ${r.metricName} (${growth})${r.series ? ` [${r.series}]` : ""}`;
-  });
+  const ownResults = results.filter((r) => r.series !== GENERIC_RADAR_LABEL);
+  const genericResults = results.filter((r) => r.series === GENERIC_RADAR_LABEL);
 
-  const header = breakouts.length > 0
-    ? `🔥 *${breakouts.length} trend(s) en breakout hoy*\n\n`
-    : `📊 *Trend digest de hoy* (sin breakouts, top por volumen)\n\n`;
+  const formatSection = (title: string, list: TrendResult[]) => {
+    const breakouts = list.filter((r) => r.breakout).slice(0, 8);
+    const top = breakouts.length > 0 ? breakouts : list.slice(0, 8);
+    const lines = top.map((r) => {
+      const growth = r.growthPctPerHour != null ? `${r.growthPctPerHour.toFixed(2)}%/h` : "sin histórico";
+      const flag = r.breakout ? "🔥 " : "• ";
+      return `${flag}${r.label} — ${r.metric.toLocaleString("es-ES")} ${r.metricName} (${growth})${r.series && r.series !== GENERIC_RADAR_LABEL ? ` [${r.series}]` : ""}`;
+    });
+    if (lines.length === 0) return "";
+    return `${title}\n\n${lines.join("\n")}\n\n`;
+  };
 
-  const text = header + lines.join("\n");
+  const text =
+    formatSection("📌 *Tu watchlist*", ownResults) +
+    formatSection("🌍 *Radar genérico (lo que pega en general)*", genericResults);
 
   const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -229,6 +245,9 @@ async function main() {
       for (const kw of keywords) {
         await discoverHashtags(kw, series, state, results, client);
       }
+    }
+    for (const seed of GENERIC_RADAR_SEEDS) {
+      await discoverHashtags(seed, GENERIC_RADAR_LABEL, state, results, client);
     }
     for (const m of MUSIC_WATCHLIST) {
       await trackMusic(m.id, m.label, state, results, client);
