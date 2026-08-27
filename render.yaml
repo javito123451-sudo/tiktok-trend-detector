@@ -1,0 +1,17 @@
+services:
+  - type: cron
+    name: tiktok-trend-detector
+    runtime: node
+    plan: starter          # el mínimo de pago para cron jobs ($1/mes); free no soporta cron
+    schedule: "0 8 * * *"  # todos los días a las 08:00 UTC (~10:00 hora Madrid en verano)
+    buildCommand: npm install
+    startCommand: npx tsx tiktok-trend-detector.ts
+    envVars:
+      - key: TIKLIVEAPI_KEY
+        sync: false        # lo rellenas a mano en el dashboard de Render
+      - key: DATABASE_URL
+        sync: false        # connection string de tu Neon (reutiliza el que ya tienes en OmniTech-Core)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
