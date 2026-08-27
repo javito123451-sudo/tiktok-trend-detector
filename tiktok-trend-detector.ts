@@ -42,6 +42,7 @@ const HASHTAG_WATCHLIST: Record<string, string[]> = {
   "LA FRACTURA": ["thriller pov", "plot twist", "suspense corto"],
   "Repartidor": ["delivery guy", "superhuman feats", "pov reparto"],
   "Animales IA": ["cat noir", "capybara anxious", "ai animal"],
+  "Aura Farming": ["aura farming", "farmeando aura", "aura points"],
 };
 
 const MUSIC_WATCHLIST: { id: string; label: string }[] = [
