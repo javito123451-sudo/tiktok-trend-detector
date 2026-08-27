@@ -41,8 +41,10 @@ const HASHTAG_WATCHLIST: Record<string, string[]> = {
   "El Gigante": ["comedia absurda", "pov gigante", "street comedy"],
   "LA FRACTURA": ["thriller pov", "plot twist", "suspense corto"],
   "Repartidor": ["delivery guy", "superhuman feats", "pov reparto"],
-  "Animales IA": ["cat noir", "capybara anxious", "ai animal"],
+  "Animales IA": ["mascota reacciona", "pet reaction prank", "ai pet surprise"],
   "Aura Farming": ["aura farming", "farmeando aura", "aura points"],
+  "Oficina IA": ["oficina ia", "ai replacing job", "trabajo automatizado"],
+  "Intruso en casa": ["intruso casa", "monster prank home", "scare prank family"],
 };
 
 const MUSIC_WATCHLIST: { id: string; label: string }[] = [
